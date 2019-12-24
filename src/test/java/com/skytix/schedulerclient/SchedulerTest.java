@@ -19,7 +19,7 @@ public class SchedulerTest {
 
             @Override
             public void handleEvent(Protos.Event aEvent) throws Exception {
-                getScheduler().teardown();
+                getSchedulerRemote().teardown();
             }
 
             @Override
@@ -47,12 +47,12 @@ public class SchedulerTest {
                     System.out.println("Got an offer");
                     final List<org.apache.mesos.v1.Protos.Offer> offersList = aEvent.getOffers().getOffersList();
 
-                    getScheduler().decline(
+                    getSchedulerRemote().decline(
                             offersList.stream().map(org.apache.mesos.v1.Protos.Offer::getId).collect(Collectors.toList())
                     );
 
                     declined.set(true);
-                    getScheduler().exit();
+                    getSchedulerRemote().exit();
                 }
 
             }

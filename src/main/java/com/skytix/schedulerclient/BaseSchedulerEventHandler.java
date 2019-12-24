@@ -1,16 +1,16 @@
 package com.skytix.schedulerclient;
 
 public abstract class BaseSchedulerEventHandler implements SchedulerEventHandler {
-    private SchedulerRemote mScheduler;
+    private SchedulerRemote mSchedulerRemote;
 
     @Override
     public final void onSubscribe(SchedulerRemote aScheduler) {
-        mScheduler = aScheduler;
+        mSchedulerRemote = aScheduler;
         onSubscribe();
     }
 
-    protected SchedulerRemote getScheduler() {
-        return mScheduler;
+    public SchedulerRemote getSchedulerRemote() {
+        return mSchedulerRemote;
     }
 
     public void onSubscribe() {
