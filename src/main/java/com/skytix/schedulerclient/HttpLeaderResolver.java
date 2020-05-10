@@ -2,6 +2,7 @@ package com.skytix.schedulerclient;
 
 import lombok.extern.slf4j.Slf4j;
 
+import javax.net.ssl.SSLContext;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -13,10 +14,11 @@ import java.util.Optional;
 @Slf4j
 public class HttpLeaderResolver implements LeaderResolver {
     private final String mMesosPath;
-    private final HttpClient mHttpClient = HttpClient.newHttpClient();
+    private final HttpClient mHttpClient;
 
-    public HttpLeaderResolver(String aMesosPath) {
+    public HttpLeaderResolver(String aMesosPath, HttpClient aHttpClient) {
         mMesosPath = aMesosPath;
+        mHttpClient = aHttpClient;
     }
 
     @Override

@@ -16,5 +16,9 @@ public class SchedulerConfig {
     @Builder.Default
     private double failoverTimeout = 86400; // Default of 1 day before framework is marked as completed.
     private List<String> roles;
+    @Builder.Default
+    private boolean disableSSLTrust = false;
+    @Builder.Default
+    private boolean enableGPUResources = false;
 
 }

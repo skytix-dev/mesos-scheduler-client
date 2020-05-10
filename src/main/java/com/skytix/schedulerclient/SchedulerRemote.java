@@ -18,6 +18,10 @@ public final class SchedulerRemote {
         mScheduler.close();
     }
 
+    public String getMesosMasterURL() {
+        return mScheduler.getMesosMasterURL();
+    }
+
     public FrameworkID getFrameworkID() {
         return mScheduler.getFrameworkID();
     }

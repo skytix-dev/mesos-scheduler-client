@@ -87,7 +87,8 @@ public class SchedulerTest {
         return Scheduler.newScheduler(
                 new SchedulerConfig.SchedulerConfigBuilder()
                 .frameworkID(aFrameworkId)
-                .mesosMasterURL(aMesosHost),
+                .mesosMasterURL(aMesosHost)
+                .build(),
                 aHandler
         );
 

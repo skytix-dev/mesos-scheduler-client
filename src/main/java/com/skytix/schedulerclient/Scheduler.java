@@ -2,18 +2,27 @@ package com.skytix.schedulerclient;
 
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.mesos.Protos.FrameworkInfo.Capability;
 import org.apache.mesos.v1.scheduler.Protos;
 import org.apache.mesos.v1.scheduler.Protos.Event;
 
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 import java.io.BufferedInputStream;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.StandardProtocolFamily;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.security.KeyManagementException;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import java.security.cert.X509Certificate;
 import java.util.UUID;
 import java.util.concurrent.*;
 
@@ -25,11 +34,12 @@ public final class Scheduler implements Closeable {
 
     private final FrameworkID mFrameworkId;
     private final SchedulerConfig mConfig;
-    private final HttpClient mHttpClient = HttpClient.newHttpClient();
+    private final HttpClient mHttpClient;
     private final SchedulerEventHandler mSchedulerEventHandler;
     private final LeaderResolver mLeaderResolver;
 
     private ScheduledExecutorService mExecutorService = null;
+    private SchedulerRemote mRemote;
     private String mMesosStreamID = null;
     private String mMasterURL = null;
     private ScheduledFuture<?> mClientThread;
@@ -40,18 +50,19 @@ public final class Scheduler implements Closeable {
         return newScheduler(
                 new SchedulerConfig.SchedulerConfigBuilder()
                 .frameworkID(aFrameworkId)
-                .mesosMasterURL(aMesosMasterURI),
+                .mesosMasterURL(aMesosMasterURI)
+                .build(),
                 aEventHandler
         );
 
     }
 
-    public static Scheduler newScheduler(SchedulerConfig.SchedulerConfigBuilder aConfig, SchedulerEventHandler aEventHandler) {
+    public static Scheduler newScheduler(SchedulerConfig aConfig, SchedulerEventHandler aEventHandler) {
         return newScheduler(aConfig, aEventHandler, Executors.newScheduledThreadPool(1));
     }
 
-    public static Scheduler newScheduler(SchedulerConfig.SchedulerConfigBuilder aConfig, SchedulerEventHandler aEventHandler, ScheduledExecutorService aExecutorService) {
-        final Scheduler scheduler = new Scheduler(aConfig.build(), aEventHandler);
+    public static Scheduler newScheduler(SchedulerConfig aConfig, SchedulerEventHandler aEventHandler, ScheduledExecutorService aExecutorService) {
+        final Scheduler scheduler = new Scheduler(aConfig, aEventHandler);
         scheduler.init(aExecutorService);
 
         return scheduler;
@@ -70,6 +81,25 @@ public final class Scheduler implements Closeable {
         mConfig = aConfig;
         mFrameworkId = frameworkID.build();
         mSchedulerEventHandler = aEventHandler;
+
+        final HttpClient.Builder httpClientBuilder = HttpClient.newBuilder();
+
+        if (mConfig.isDisableSSLTrust()) {
+
+            try {
+                final SSLContext sslContext = SSLContext.getInstance("TLS");
+
+                sslContext.init(null, trustAllCerts, new SecureRandom());
+                httpClientBuilder.sslContext(sslContext);
+
+            } catch (NoSuchAlgorithmException | KeyManagementException aE) {
+                log.error("Unable to set SSLContext.  Skipping disabling of SSL Trust checking.");
+            }
+
+        }
+
+        mHttpClient = httpClientBuilder.build();
+
         final String masterURL = aConfig.getMesosMasterURL();
 
         if (StringUtils.isNotEmpty(masterURL)) {
@@ -78,7 +108,7 @@ public final class Scheduler implements Closeable {
                 mLeaderResolver = new ZooKeeperLeaderResolver();
 
             } else {
-                mLeaderResolver = new HttpLeaderResolver(masterURL);
+                mLeaderResolver = new HttpLeaderResolver(masterURL, mHttpClient);
             }
 
         } else {
@@ -90,6 +120,7 @@ public final class Scheduler implements Closeable {
     private void init(ScheduledExecutorService aThreadExecutorService) {
         // Discover the Mesos leader from ZK.
         mExecutorService = aThreadExecutorService;
+        mRemote = new SchedulerRemote(this);
 
         mClientThread = mExecutorService.schedule(() -> {
 
@@ -141,7 +172,7 @@ public final class Scheduler implements Closeable {
                             switch (event.getType()) {
 
                                 case SUBSCRIBED:
-                                    mSchedulerEventHandler.onSubscribe(new SchedulerRemote(this));
+                                    mSchedulerEventHandler.onSubscribe(mRemote);
                                     log.info(String.format("Connected to Master as FrameworkID: %s", mFrameworkId.getValue()));
                                     break;
 
@@ -201,6 +232,14 @@ public final class Scheduler implements Closeable {
         mSemaphore.acquire();
     }
 
+    public String getMesosMasterURL() {
+        return mMasterURL;
+    }
+
+    public SchedulerRemote getRemote() {
+        return mRemote;
+    }
+
     private FrameworkInfo.Builder createFrameworkInfo() {
         final FrameworkInfo.Builder frameworkInfo = FrameworkInfo.newBuilder()
                 .setId(mFrameworkId);
@@ -221,6 +260,13 @@ public final class Scheduler implements Closeable {
 
         if (mConfig.getFailoverTimeout() > 0) {
             frameworkInfo.setFailoverTimeout(mConfig.getFailoverTimeout());
+        }
+
+        if (mConfig.isEnableGPUResources()) {
+            final FrameworkInfo.Capability.Builder capabilityBuilder = FrameworkInfo.Capability.newBuilder();
+            capabilityBuilder.setType(FrameworkInfo.Capability.Type.GPU_RESOURCES);
+
+            frameworkInfo.addCapabilities(capabilityBuilder);
         }
 
         return frameworkInfo;
@@ -265,5 +311,23 @@ public final class Scheduler implements Closeable {
                 .setType(aType);
 
     }
+
+    private static TrustManager[] trustAllCerts = new TrustManager[] {
+
+            new X509TrustManager() {
+
+                public X509Certificate[] getAcceptedIssuers() {
+                    return null;
+                }
+
+                public void checkClientTrusted(
+                        X509Certificate[] certs, String authType) {
+                }
+
+                public void checkServerTrusted(
+                        X509Certificate[] certs, String authType) {
+                }
+            }
+    };
 
 }
