@@ -68,7 +68,7 @@ public class SchedulerTest {
     public void testSchedulerFailsOnBadHost() throws Exception {
         final AtomicBoolean failed = new AtomicBoolean(false);
 
-        final Scheduler scheduler = createScheduler(UUID.randomUUID().toString(), "http://localhost:3433", new BaseSchedulerEventHandler() {
+        final Scheduler scheduler = createScheduler(UUID.randomUUID().toString(), "http://10.9.10.1:5050", new BaseSchedulerEventHandler() {
 
             @Override
             public void onTerminate(Exception aException) {
@@ -82,19 +82,19 @@ public class SchedulerTest {
         Assert.assertTrue(failed.get());
     }
 
-    private Scheduler createScheduler(String aFrameworkId, String aMesosHost, SchedulerEventHandler aHandler) {
+    private Scheduler createScheduler(String aFrameworkId, String aMesosHost, SchedulerEventHandler aHandler) throws Exception {
 
         return Scheduler.newScheduler(
-                new SchedulerConfig.SchedulerConfigBuilder()
-                .frameworkID(aFrameworkId)
-                .mesosMasterURL(aMesosHost)
+                SchedulerConfig.builder()
+                    .frameworkID(aFrameworkId)
+                    .mesosMasterURL(aMesosHost)
                 .build(),
                 aHandler
         );
 
     }
 
-    private Scheduler createScheduler(String aFrameworkId, SchedulerEventHandler aHandler) {
+    private Scheduler createScheduler(String aFrameworkId, SchedulerEventHandler aHandler) throws Exception {
         return Scheduler.newScheduler(aFrameworkId, "http://10.9.10.1:5050", aHandler);
     }
 

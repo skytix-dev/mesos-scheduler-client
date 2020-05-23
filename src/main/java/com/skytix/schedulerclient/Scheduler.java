@@ -48,9 +48,9 @@ public final class Scheduler implements Closeable {
     public static Scheduler newScheduler(String aFrameworkId, String aMesosMasterURI, SchedulerEventHandler aEventHandler) throws IOException {
 
         return newScheduler(
-                new SchedulerConfig.SchedulerConfigBuilder()
-                .frameworkID(aFrameworkId)
-                .mesosMasterURL(aMesosMasterURI)
+                SchedulerConfig.builder()
+                    .frameworkID(aFrameworkId)
+                    .mesosMasterURL(aMesosMasterURI)
                 .build(),
                 aEventHandler
         );
@@ -265,6 +265,10 @@ public final class Scheduler implements Closeable {
 
         if (mConfig.getFailoverTimeout() > 0) {
             frameworkInfo.setFailoverTimeout(mConfig.getFailoverTimeout());
+        }
+
+        if (mConfig.getRoles() != null && !mConfig.getRoles().isEmpty()) {
+            frameworkInfo.addAllRoles(mConfig.getRoles());
         }
 
         if (mConfig.isEnableGPUResources()) {

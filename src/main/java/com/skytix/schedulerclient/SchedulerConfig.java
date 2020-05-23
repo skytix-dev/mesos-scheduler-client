@@ -2,11 +2,11 @@ package com.skytix.schedulerclient;
 
 import lombok.Builder;
 import lombok.Getter;
-import org.apache.mesos.v1.Protos;
+import lombok.experimental.SuperBuilder;
 
 import java.util.List;
 
-@Builder
+@SuperBuilder
 @Getter
 public class SchedulerConfig {
     private String mesosMasterURL;
