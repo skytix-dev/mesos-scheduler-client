@@ -45,7 +45,7 @@ public final class Scheduler implements Closeable {
     private ScheduledFuture<?> mClientThread;
     private boolean mRunning = true;
 
-    public static Scheduler newScheduler(String aFrameworkId, String aMesosMasterURI, SchedulerEventHandler aEventHandler) {
+    public static Scheduler newScheduler(String aFrameworkId, String aMesosMasterURI, SchedulerEventHandler aEventHandler) throws IOException {
 
         return newScheduler(
                 new SchedulerConfig.SchedulerConfigBuilder()
@@ -57,11 +57,11 @@ public final class Scheduler implements Closeable {
 
     }
 
-    public static Scheduler newScheduler(SchedulerConfig aConfig, SchedulerEventHandler aEventHandler) {
+    public static Scheduler newScheduler(SchedulerConfig aConfig, SchedulerEventHandler aEventHandler) throws IOException {
         return newScheduler(aConfig, aEventHandler, Executors.newScheduledThreadPool(1));
     }
 
-    public static Scheduler newScheduler(SchedulerConfig aConfig, SchedulerEventHandler aEventHandler, ScheduledExecutorService aExecutorService) {
+    public static Scheduler newScheduler(SchedulerConfig aConfig, SchedulerEventHandler aEventHandler, ScheduledExecutorService aExecutorService) throws IOException {
         final Scheduler scheduler = new Scheduler(aConfig, aEventHandler);
         scheduler.init(aExecutorService);
 
@@ -117,114 +117,119 @@ public final class Scheduler implements Closeable {
 
     }
 
-    private void init(ScheduledExecutorService aThreadExecutorService) {
+    private void init(ScheduledExecutorService aThreadExecutorService) throws IOException {
         // Discover the Mesos leader from ZK.
         mExecutorService = aThreadExecutorService;
         mRemote = new SchedulerRemote(this);
 
-        mClientThread = mExecutorService.schedule(() -> {
+        try {
+            final FrameworkInfo.Builder frameworkInfo = createFrameworkInfo();
 
-            try {
-                final FrameworkInfo.Builder frameworkInfo = createFrameworkInfo();
+            final Protos.Call subscribeCall = Protos.Call.newBuilder()
+                    .setFrameworkId(mFrameworkId)
+                    .setType(Protos.Call.Type.SUBSCRIBE)
+                    .setSubscribe(
+                            Protos.Call.Subscribe.newBuilder()
+                                    .setFrameworkInfo(frameworkInfo)
+                    )
+                    .build();
 
-                final Protos.Call subscribeCall = Protos.Call.newBuilder()
-                        .setFrameworkId(mFrameworkId)
-                        .setType(Protos.Call.Type.SUBSCRIBE)
-                        .setSubscribe(
-                                Protos.Call.Subscribe.newBuilder()
-                                        .setFrameworkInfo(frameworkInfo)
-                        )
-                        .build();
+            final String leader = mLeaderResolver.resolveLeader();
 
-                final String leader = mLeaderResolver.resolveLeader();
+            final URI leaderUri = new URI(leader + "/api/v1/scheduler");
 
-                final URI leaderUri = new URI(leader + "/api/v1/scheduler");
+            final HttpRequest request = HttpRequest.newBuilder()
+                    .uri(leaderUri)
+                    .header("Content-Type", "application/x-protobuf")
+                    .header("Accept", "application/x-protobuf")
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(subscribeCall.toByteArray()))
+                    .build();
 
-                final HttpRequest request = HttpRequest.newBuilder()
-                        .uri(leaderUri)
-                        .header("Content-Type", "application/x-protobuf")
-                        .header("Accept", "application/x-protobuf")
-                        .POST(HttpRequest.BodyPublishers.ofByteArray(subscribeCall.toByteArray()))
-                        .build();
+            log.info(String.format("Connecting to Mesos at: %s", leaderUri));
 
-                log.info(String.format("Connecting to Mesos at: %s", leaderUri));
+            final HttpResponse<InputStream> response = mHttpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
 
-                final HttpResponse<InputStream> response = mHttpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            if (response.statusCode() == 200) {
 
-                if (response.statusCode() == 200) {
-                    mMesosStreamID = response.headers().firstValue("Mesos-Stream-Id").get();
-                    mMasterURL = leader;
+                mClientThread = mExecutorService.schedule(() -> {
 
-                    final InputStream reader = new BufferedInputStream(response.body());
+                    try {
+                        mMesosStreamID = response.headers().firstValue("Mesos-Stream-Id").get();
+                        mMasterURL = leader;
 
-                    StringBuffer sb = new StringBuffer();
-                    int data = reader.read();
+                        final InputStream reader = new BufferedInputStream(response.body());
 
-                    while (data != -1 && mRunning) {
+                        StringBuffer sb = new StringBuffer();
+                        int data = reader.read();
 
-                        if (data == 10) {
-                            // Contents of the StringBuffer should have the length of bytes to read.
-                            final long recordLength = Long.parseLong(sb.toString());
-                            final byte[] buffer = reader.readNBytes((int) recordLength);
+                        while (data != -1 && mRunning) {
 
-                            final Event event = Event.parseFrom(buffer);
+                            if (data == 10) {
+                                // Contents of the StringBuffer should have the length of bytes to read.
+                                final long recordLength = Long.parseLong(sb.toString());
+                                final byte[] buffer = reader.readNBytes((int) recordLength);
 
-                            switch (event.getType()) {
+                                final Event event = Event.parseFrom(buffer);
 
-                                case SUBSCRIBED:
-                                    mSchedulerEventHandler.onSubscribe(mRemote);
-                                    log.info(String.format("Connected to Master as FrameworkID: %s", mFrameworkId.getValue()));
-                                    break;
+                                switch (event.getType()) {
 
-                                case ERROR:
-                                    final String error = String.format("Error subscribing to Mesos: %s", event.getMessage());
-                                    log.error(error);
-                                    mSchedulerEventHandler.onTerminate(new IllegalStateException(error));
-                                    return;
+                                    case SUBSCRIBED:
+                                        mSchedulerEventHandler.onSubscribe(mRemote);
+                                        log.info(String.format("Connected to Master as FrameworkID: %s", mFrameworkId.getValue()));
+                                        break;
 
-                                default:
+                                    case ERROR:
+                                        final String error = String.format("Error subscribing to Mesos: %s", event.getMessage());
+                                        log.error(error);
+                                        mSchedulerEventHandler.onTerminate(new IllegalStateException(error));
+                                        return;
 
-                                    try {
-                                        mSchedulerEventHandler.handleEvent(event);
+                                    default:
 
-                                    } catch (Exception aE) {
-                                        log.error(aE.getMessage(), aE);
-                                    }
+                                        try {
+                                            mSchedulerEventHandler.handleEvent(event);
 
+                                        } catch (Exception aE) {
+                                            log.error(aE.getMessage(), aE);
+                                        }
+
+                                }
+
+                                sb = new StringBuffer();
+                                data = reader.read();
+
+                            } else {
+                                sb.append(new String(new byte[]{(byte) data}));
+                                data = reader.read();
                             }
 
-                            sb = new StringBuffer();
-                            data = reader.read();
-
-                        } else {
-                            sb.append(new String(new byte[]{(byte) data}));
-                            data = reader.read();
                         }
 
+                        if (mRunning) {
+                            log.info(String.format("Scheduler '%s' has lost it's connection to Mesos '%s'", mFrameworkId, mMasterURL));
+                            mSchedulerEventHandler.onDisconnect();
+
+                        } else {
+                            mSchedulerEventHandler.onExit();
+                        }
+
+                    } catch (IOException aE) {
+                        mSchedulerEventHandler.onTerminate(aE);
+                        log.error(aE.getMessage(), aE);
                     }
 
-                    if (mRunning) {
-                        log.info(String.format("Scheduler '%s' %s has lost it's connection to Mesos"));
-                        mSchedulerEventHandler.onDisconnect();
+                }, 0, TimeUnit.SECONDS);
 
-                    } else {
-                        mSchedulerEventHandler.onExit();
-                    }
-
-                } else {
-                    mSchedulerEventHandler.onTerminate(new Exception(String.format("Scheduler was unable to connect to mesos with exit code %d", response.statusCode())));
-                    log.error("Error subscribing to Mesos");
-                }
-
-            } catch (URISyntaxException | IOException | InterruptedException | NoLeaderException aE) {
-                mSchedulerEventHandler.onTerminate(aE);
-                log.error(aE.getMessage(), aE);
-
-            } finally {
-                mSemaphore.release();
+            } else {
+                throw new IOException(String.format("Scheduler was unable to connect to mesos with exit code %d", response.statusCode()));
             }
 
-        }, 0, TimeUnit.SECONDS);
+        } catch (URISyntaxException | InterruptedException | NoLeaderException aE) {
+            throw new IOException(aE);
+
+        } finally {
+            mSemaphore.release();
+        }
 
     }
 
@@ -275,6 +280,7 @@ public final class Scheduler implements Closeable {
     @Override
     public void close() throws IOException {
         mRunning = false;
+        mExecutorService.shutdown();
         mClientThread.cancel(false);
     }
 
