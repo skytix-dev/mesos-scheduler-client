@@ -4,6 +4,8 @@ import org.apache.mesos.v1.scheduler.Protos;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -18,12 +20,19 @@ public class SchedulerTest {
         final Scheduler scheduler = createScheduler(UUID.randomUUID().toString(), new BaseSchedulerEventHandler() {
 
             @Override
-            public void handleEvent(Protos.Event aEvent) throws Exception {
-                getSchedulerRemote().teardown();
+            public void handleEvent(Protos.Event aEvent) {
+
+                try {
+                    getSchedulerRemote().teardown();
+
+                } catch (IOException aE) {
+                    aE.printStackTrace();
+                }
+
             }
 
             @Override
-            public void onSubscribe() {
+            public void onSubscribe(Protos.Event.Subscribed aSubscribeEvent) {
                 subscribed.set(true);
             }
 
@@ -38,25 +47,35 @@ public class SchedulerTest {
     public void testSchedulerRejectsOffers() throws Exception {
         final AtomicBoolean declined = new AtomicBoolean(false);
 
-        final Scheduler scheduler = createScheduler("junit-test-framework-3", new BaseSchedulerEventHandler() {
+        final Scheduler scheduler = createScheduler("junit-test-framework-4", new BaseSchedulerEventHandler() {
 
             @Override
-            public void handleEvent(Protos.Event aEvent) throws Exception {
+            public void handleEvent(Protos.Event aEvent) {
 
-                if (aEvent.getType() == Protos.Event.Type.OFFERS) {
-                    System.out.println("Got an offer");
-                    final List<org.apache.mesos.v1.Protos.Offer> offersList = aEvent.getOffers().getOffersList();
+                try {
+                    if (aEvent.getType() == Protos.Event.Type.OFFERS) {
+                        System.out.println("Got an offer");
+                        final List<org.apache.mesos.v1.Protos.Offer> offersList = aEvent.getOffers().getOffersList();
 
-                    getSchedulerRemote().decline(
-                            offersList.stream().map(org.apache.mesos.v1.Protos.Offer::getId).collect(Collectors.toList())
-                    );
+                        getSchedulerRemote().decline(
+                                offersList.stream().map(org.apache.mesos.v1.Protos.Offer::getId).collect(Collectors.toList())
+                        );
 
-                    declined.set(true);
-                    getSchedulerRemote().exit();
+                        declined.set(true);
+                        getSchedulerRemote().exit();
+
+                    }
+
+                } catch (IOException aE) {
+                    aE.printStackTrace();
                 }
 
             }
 
+            @Override
+            public void onSubscribe(Protos.Event.Subscribed aSubscribeEvent) {
+                System.out.println("Subscribed successfully");
+            }
         });
 
         scheduler.join();
@@ -73,6 +92,11 @@ public class SchedulerTest {
             @Override
             public void onTerminate(Exception aException) {
                 failed.set(true);
+            }
+
+            @Override
+            public void onSubscribe(Protos.Event.Subscribed aSubscribeEvent) {
+
             }
 
         });
@@ -95,7 +119,7 @@ public class SchedulerTest {
     }
 
     private Scheduler createScheduler(String aFrameworkId, SchedulerEventHandler aHandler) throws Exception {
-        return Scheduler.newScheduler(aFrameworkId, "http://10.9.10.1:5050", aHandler);
+        return createScheduler(aFrameworkId, "http://10.9.10.1:5050", aHandler);
     }
 
 }

@@ -5,7 +5,7 @@ It is designed to be lightweight interface that works with Java 11+ which allows
 ## Install
 You can install the library from Maven Central
 
-``` compile group: 'au.com.skytix', name: 'mesos-scheduler-client', version: '1.0.0'```
+``` compile group: 'au.com.skytix', name: 'mesos-scheduler-client', version: '1.0.7'```
 
 ## Usage
 There is no limit on the number of schedulers your can create.  If no FrameworkID is provided on startup, a random UUID will generated.
@@ -21,7 +21,7 @@ final Scheduler scheduler = Scheduler.newScheduler(
             }
 
             @Override
-            public void onSubscribe() {
+            public void onSubscribe(Protos.Event.Subscribed aSubscribeEvent) {
                 // Event message invoked after the Scheduler has successfully connected.
                 // getScheduler() returns a SchedulerRemote which is used to interact with Mesos
             }

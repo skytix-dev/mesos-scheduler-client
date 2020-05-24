@@ -2,6 +2,7 @@ package com.skytix.schedulerclient;
 
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.log4j.lf5.util.StreamUtils;
 import org.apache.mesos.Protos.FrameworkInfo.Capability;
 import org.apache.mesos.v1.scheduler.Protos;
 import org.apache.mesos.v1.scheduler.Protos.Event;
@@ -120,7 +121,6 @@ public final class Scheduler implements Closeable {
     private void init(ScheduledExecutorService aThreadExecutorService) throws IOException {
         // Discover the Mesos leader from ZK.
         mExecutorService = aThreadExecutorService;
-        mRemote = new SchedulerRemote(this);
 
         try {
             final FrameworkInfo.Builder frameworkInfo = createFrameworkInfo();
@@ -150,14 +150,16 @@ public final class Scheduler implements Closeable {
             final HttpResponse<InputStream> response = mHttpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
 
             if (response.statusCode() == 200) {
+                mMesosStreamID = response.headers().firstValue("Mesos-Stream-Id").get();
+                log.info(String.format("Connected with Stream ID: %s", mMesosStreamID));
+                mMasterURL = leader;
+                mRemote = new SchedulerRemote(this);
 
                 mClientThread = mExecutorService.schedule(() -> {
 
                     try {
-                        mMesosStreamID = response.headers().firstValue("Mesos-Stream-Id").get();
-                        mMasterURL = leader;
-
                         final InputStream reader = new BufferedInputStream(response.body());
+                        boolean subscribed = false;
 
                         StringBuffer sb = new StringBuffer();
                         int data = reader.read();
@@ -174,25 +176,27 @@ public final class Scheduler implements Closeable {
                                 switch (event.getType()) {
 
                                     case SUBSCRIBED:
-                                        mSchedulerEventHandler.onSubscribe(mRemote);
+                                        mSchedulerEventHandler.onSubscribe(mRemote, event.getSubscribed());
+                                        subscribed = true;
                                         log.info(String.format("Connected to Master as FrameworkID: %s", mFrameworkId.getValue()));
                                         break;
 
                                     case ERROR:
-                                        final String error = String.format("Error subscribing to Mesos: %s", event.getMessage());
-                                        log.error(error);
-                                        mSchedulerEventHandler.onTerminate(new IllegalStateException(error));
-                                        return;
 
-                                    default:
+                                        if (!subscribed) {
+                                            final String error = String.format("Error subscribing to Mesos: %s", event.getMessage());
+                                            log.error(error);
+                                            mSchedulerEventHandler.onTerminate(new IllegalStateException(error));
 
-                                        try {
+                                        } else {
                                             mSchedulerEventHandler.handleEvent(event);
-
-                                        } catch (Exception aE) {
-                                            log.error(aE.getMessage(), aE);
                                         }
 
+                                        break;
+
+                                    default:
+                                        mSchedulerEventHandler.handleEvent(event);
+                                        break;
                                 }
 
                                 sb = new StringBuffer();
@@ -215,20 +219,19 @@ public final class Scheduler implements Closeable {
 
                     } catch (IOException aE) {
                         mSchedulerEventHandler.onTerminate(aE);
-                        log.error(aE.getMessage(), aE);
+
+                    } finally {
+                        mSemaphore.release();
                     }
 
                 }, 0, TimeUnit.SECONDS);
 
             } else {
-                throw new IOException(String.format("Scheduler was unable to connect to mesos with exit code %d", response.statusCode()));
+                throw new IOException(String.format("Scheduler was unable to connect to mesos with exit code %d - %s", response.statusCode(), new String(StreamUtils.getBytes(response.body()))));
             }
 
         } catch (URISyntaxException | InterruptedException | NoLeaderException aE) {
             throw new IOException(aE);
-
-        } finally {
-            mSemaphore.release();
         }
 
     }

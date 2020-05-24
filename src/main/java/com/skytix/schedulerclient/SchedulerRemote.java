@@ -5,6 +5,7 @@ import static org.apache.mesos.v1.Protos.*;
 import static org.apache.mesos.v1.scheduler.Protos.*;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
 
 public final class SchedulerRemote {
@@ -145,6 +146,10 @@ public final class SchedulerRemote {
 
     }
 
+    public void revive() {
+        revive(Collections.emptyList());
+    }
+
     public void revive(List<String> aRoles) {
 
         mScheduler.sendCall(
@@ -156,6 +161,10 @@ public final class SchedulerRemote {
                 ).build()
         );
 
+    }
+
+    public void suppress() {
+        suppress(Collections.emptyList());
     }
 
     public void suppress(List<String> aRoles) {
