@@ -1,5 +1,6 @@
 package com.skytix.schedulerclient;
 
+import com.skytix.schedulerclient.mesos.MesosConstants;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.log4j.lf5.util.StreamUtils;
@@ -44,6 +45,7 @@ public final class Scheduler implements Closeable {
     private String mMesosStreamID = null;
     private String mMasterURL = null;
     private ScheduledFuture<?> mClientThread;
+    private FrameworkInfo mFrameworkInfo;
     private boolean mRunning = true;
 
     public static Scheduler newScheduler(String aFrameworkId, String aMesosMasterURI, SchedulerEventHandler aEventHandler) throws IOException {
@@ -123,14 +125,14 @@ public final class Scheduler implements Closeable {
         mExecutorService = aThreadExecutorService;
 
         try {
-            final FrameworkInfo.Builder frameworkInfo = createFrameworkInfo();
+            mFrameworkInfo = createFrameworkInfo(mFrameworkId).build();
 
             final Protos.Call subscribeCall = Protos.Call.newBuilder()
                     .setFrameworkId(mFrameworkId)
                     .setType(Protos.Call.Type.SUBSCRIBE)
                     .setSubscribe(
                             Protos.Call.Subscribe.newBuilder()
-                                    .setFrameworkInfo(frameworkInfo)
+                                    .setFrameworkInfo(mFrameworkInfo)
                     )
                     .build();
 
@@ -248,9 +250,9 @@ public final class Scheduler implements Closeable {
         return mRemote;
     }
 
-    private FrameworkInfo.Builder createFrameworkInfo() {
+    protected FrameworkInfo.Builder createFrameworkInfo(FrameworkID aFrameworkID) {
         final FrameworkInfo.Builder frameworkInfo = FrameworkInfo.newBuilder()
-                .setId(mFrameworkId);
+                .setId(aFrameworkID);
 
         if (StringUtils.isBlank(mConfig.getUser())) {
             frameworkInfo.setUser("root");
@@ -274,11 +276,56 @@ public final class Scheduler implements Closeable {
             frameworkInfo.addAllRoles(mConfig.getRoles());
         }
 
+        final OfferFilters.MinAllocatableResources.Builder minSchedulerResources = OfferFilters.MinAllocatableResources.newBuilder();
+
+        final double minAllocatableCpu = mConfig.getMinAllocatableCpu();
+        final double minAllocatableMem = mConfig.getMinAllocatableMem();
+        final double minAllocatableDisk = mConfig.getMinAllocatableDisk();
+
+        if (minAllocatableCpu > 0) {
+
+            minSchedulerResources.addQuantities(
+                    OfferFilters.ResourceQuantities.newBuilder()
+                    .putQuantities(MesosConstants.SCALAR_CPU, Value.Scalar.newBuilder().setValue(minAllocatableCpu).build())
+            );
+        }
+
+        if (minAllocatableMem > 0) {
+
+            minSchedulerResources.addQuantities(
+                    OfferFilters.ResourceQuantities.newBuilder()
+                            .putQuantities(MesosConstants.SCALAR_MEM, Value.Scalar.newBuilder().setValue(minAllocatableMem).build())
+            );
+        }
+
+        if (minAllocatableDisk > 0) {
+
+            minSchedulerResources.addQuantities(
+                    OfferFilters.ResourceQuantities.newBuilder()
+                            .putQuantities(MesosConstants.SCALAR_DISK, Value.Scalar.newBuilder().setValue(minAllocatableDisk).build())
+            );
+        }
+
         if (mConfig.isEnableGPUResources()) {
             final FrameworkInfo.Capability.Builder capabilityBuilder = FrameworkInfo.Capability.newBuilder();
             capabilityBuilder.setType(FrameworkInfo.Capability.Type.GPU_RESOURCES);
 
             frameworkInfo.addCapabilities(capabilityBuilder);
+
+            final double minAllocatableGpu = mConfig.getMinAllocatableGpu();
+
+            if (minAllocatableGpu > 0) {
+                minSchedulerResources.addQuantities(
+                        OfferFilters.ResourceQuantities.newBuilder()
+                                .putQuantities(MesosConstants.SCALAR_GPU, Value.Scalar.newBuilder().setValue(minAllocatableGpu).build())
+                );
+            }
+
+        }
+
+        //TODO: Make it possible to set min resources per offer.  For now, it's all.
+        if (minSchedulerResources.getQuantitiesCount() > 0) {
+            frameworkInfo.putOfferFilters(MesosConstants.ROLE_ALL, OfferFilters.newBuilder().setMinAllocatableResources(minSchedulerResources).build());
         }
 
         return frameworkInfo;
@@ -291,8 +338,13 @@ public final class Scheduler implements Closeable {
         mClientThread.cancel(false);
     }
 
+    @Deprecated
     protected FrameworkID getFrameworkID() {
-        return mFrameworkId;
+        return mFrameworkInfo.getId();
+    }
+
+    public FrameworkInfo getFrameworkInfo() {
+        return mFrameworkInfo;
     }
 
     protected void sendCall(Protos.Call aCall) {
@@ -307,7 +359,7 @@ public final class Scheduler implements Closeable {
 
             final HttpResponse<String> response = mHttpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
-            if (response.statusCode() != 202) {
+            if (response.statusCode() != 202 && response.statusCode() != 200) {
                 log.error("Error sending call to Mesos: " + response.body());
             }
 

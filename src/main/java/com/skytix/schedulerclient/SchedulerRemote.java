@@ -1,5 +1,6 @@
 package com.skytix.schedulerclient;
 
+import com.skytix.schedulerclient.mesos.MesosConstants;
 import org.apache.mesos.v1.Protos;
 import static org.apache.mesos.v1.Protos.*;
 import static org.apache.mesos.v1.scheduler.Protos.*;
@@ -23,8 +24,13 @@ public final class SchedulerRemote {
         return mScheduler.getMesosMasterURL();
     }
 
+    @Deprecated
     public FrameworkID getFrameworkID() {
         return mScheduler.getFrameworkID();
+    }
+
+    public FrameworkInfo getFrameworkInfo() {
+        return mScheduler.getFrameworkInfo();
     }
 
     public void accept(List<OfferID> aOfferIDs, List<Offer.Operation> aOperations) {
@@ -178,6 +184,34 @@ public final class SchedulerRemote {
                         )
                         .build()
 
+        );
+
+    }
+
+    public void updateFrameworkOfferFilters(OfferFilters aOfferFilters) {
+        final Call.UpdateFramework.Builder update = Call.UpdateFramework.newBuilder();
+        final FrameworkInfo.Builder frameworkInfo = mScheduler.getFrameworkInfo().toBuilder();
+
+        frameworkInfo.clearOfferFilters();
+        frameworkInfo.putOfferFilters(MesosConstants.ROLE_ALL, aOfferFilters);
+
+        update.setFrameworkInfo(frameworkInfo);
+
+        updateFramework(update.build());
+    }
+
+    public void resetFrameworkOfferFilters() {
+        final Call.UpdateFramework.Builder update = Call.UpdateFramework.newBuilder();
+        final FrameworkInfo.Builder frameworkInfo = mScheduler.getFrameworkInfo().toBuilder();
+
+        updateFramework(update.setFrameworkInfo(frameworkInfo).build());
+    }
+
+    public void updateFramework(Call.UpdateFramework aUpdate) {
+
+        mScheduler.sendCall(
+                createCall(Call.Type.UPDATE_FRAMEWORK)
+                .setUpdateFramework(aUpdate).build()
         );
 
     }

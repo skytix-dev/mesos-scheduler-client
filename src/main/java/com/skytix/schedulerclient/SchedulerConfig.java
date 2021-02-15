@@ -1,5 +1,6 @@
 package com.skytix.schedulerclient;
 
+import com.skytix.schedulerclient.mesos.MinAllocatableResources;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.experimental.SuperBuilder;
@@ -20,5 +21,12 @@ public class SchedulerConfig {
     private boolean disableSSLTrust = false;
     @Builder.Default
     private boolean enableGPUResources = false;
-
+    @Builder.Default
+    private double minAllocatableCpu = 0;
+    @Builder.Default
+    private double minAllocatableMem = 0;
+    @Builder.Default
+    private double minAllocatableGpu = 0.0;
+    @Builder.Default
+    private double minAllocatableDisk = 0.0;
 }

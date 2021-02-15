@@ -13,7 +13,7 @@ import java.util.stream.Collectors;
 
 public class SchedulerTest {
 
-    @Test
+    //@Test
     public void testSchedulerConnectsAndCloses() throws Exception {
         final AtomicBoolean subscribed = new AtomicBoolean(false);
 
@@ -21,14 +21,6 @@ public class SchedulerTest {
 
             @Override
             public void handleEvent(Protos.Event aEvent) {
-
-                try {
-                    getSchedulerRemote().teardown();
-
-                } catch (IOException aE) {
-                    aE.printStackTrace();
-                }
-
             }
 
             @Override
@@ -43,7 +35,7 @@ public class SchedulerTest {
         Assert.assertTrue(subscribed.get());
     }
 
-    @Test
+    //@Test
     public void testSchedulerRejectsOffers() throws Exception {
         final AtomicBoolean declined = new AtomicBoolean(false);
 
@@ -83,7 +75,7 @@ public class SchedulerTest {
         Assert.assertTrue(declined.get());
     }
 
-    @Test
+    //@Test
     public void testSchedulerFailsOnBadHost() throws Exception {
         final AtomicBoolean failed = new AtomicBoolean(false);
 
