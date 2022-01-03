@@ -3,19 +3,13 @@ package com.skytix.schedulerclient;
 import com.skytix.schedulerclient.mesos.MesosConstants;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.log4j.lf5.util.StreamUtils;
-import org.apache.mesos.Protos.FrameworkInfo.Capability;
 import org.apache.mesos.v1.scheduler.Protos;
 import org.apache.mesos.v1.scheduler.Protos.Event;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
-import java.io.BufferedInputStream;
-import java.io.Closeable;
-import java.io.IOException;
-import java.io.InputStream;
-import java.net.StandardProtocolFamily;
+import java.io.*;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.http.HttpClient;
@@ -229,7 +223,10 @@ public final class Scheduler implements Closeable {
                 }, 0, TimeUnit.SECONDS);
 
             } else {
-                throw new IOException(String.format("Scheduler was unable to connect to mesos with exit code %d - %s", response.statusCode(), new String(StreamUtils.getBytes(response.body()))));
+                final ByteArrayOutputStream bo = new ByteArrayOutputStream();
+                response.body().transferTo(bo);
+
+                throw new IOException(String.format("Scheduler was unable to connect to mesos with exit code %d - %s", response.statusCode(), bo));
             }
 
         } catch (URISyntaxException | InterruptedException | NoLeaderException aE) {
