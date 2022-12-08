@@ -188,6 +188,17 @@ public final class SchedulerRemote {
 
     }
 
+    public void message(Call.Message message) {
+
+        mScheduler.sendCall(
+                createCall(Call.Type.MESSAGE)
+                        .setMessage(message)
+                        .build()
+
+        );
+
+    }
+
     public void updateFrameworkOfferFilters(OfferFilters aOfferFilters) {
         final Call.UpdateFramework.Builder update = Call.UpdateFramework.newBuilder();
         final FrameworkInfo.Builder frameworkInfo = mScheduler.getFrameworkInfo().toBuilder();
